@@ -1,5 +1,5 @@
 ---
-title: "Analiza Spektralna Rynku Pracy"
+title: "Analiza spektralna rynku pracy"
 author: "Mateusz Jakubczak"
 date: "14 Luty 2021"
 output:
@@ -62,12 +62,12 @@ library(smooth)
 
 # Pytanie badawcze
 
-### Jaki jest wływ rynku pracy na rynek nieruchomości
+### Jaki jest wpływ rynku pracy na rynek nieruchomości
 
 
-## Zrodło danych
+## Źródło danych
 
-Dane pochodzą z serwisu gus i obejmują zakres od lat 2005 do 2020 w okresach miesiecznych.
+Dane pochodzą z serwisu GUS i obejmują zakres od lat 2005 do 2020 w okresach miesięcznych.
 https://stat.gov.pl/download/gfx/portalinformacyjny/pl/defaultstronaopisowa/1772/1/5/wybrane_miesieczne_wskazniki_makroekonomiczne_cz_i.xlsx
 
 ## Analiza spektralna zależności między dynamiką wynagrodzeń a stopy bezrobocia
@@ -115,6 +115,7 @@ Wybrane czynniki to:
 
 
 ```
+
 ## Podczas liczenia dynamiki tracimy informacje dla pierwszego miesiąca co wpływa na dalszą analizę spektralną, ponieważ nie mamy pełnych okresów rocznych.
 ### Rozwiązujemy to poprzez odrzucenie całości danych z pierwszego roku.
 
@@ -123,14 +124,14 @@ Wybrane czynniki to:
 
 
     plot(df$Date,df$Bezrobotni,  type = "l" ,main = "Bezrobotni w tysiącach")
-    plot(df$Date,df$Mieszkania,  type = "l",main = "Ilośc nowych mieszkan odana w danym miesiącu  " )
+    plot(df$Date,df$Mieszkania,  type = "l",main = "Ilość nowych mieszkan odana w danym miesiącu" )
     plot(df$Date,df$Wynagrodzenie,  type = "l",main = "Przeciente miesieczne wynagrodzenie")
 
 
 ```
 
 ## Z wykresów widzimy, że mamy do czynienia z danymi o dużej sezonowości oraz szeregami potencjalnie niestacjonarnymi z trendem.
-### Żeby doprowadzić wykres do stacjonarności oraz nie stracić na możliwości interpretacji wyników przeliczamy procentową zmianę miesiąc do miesiąca
+### Żeby doprowadzić wykres do stacjonarność oraz nie stracić na możliwości interpretacji wyników przeliczamy procentową zmianę miesiąc do miesiąca.
 
 ```{r pch, echo=FALSE,message=FALSE, warning=FALSE}
     #agregacja danych makro dla powiatu
@@ -143,12 +144,12 @@ Wybrane czynniki to:
 
 ```
 
-### Możemy zauważyć wpływ kryzysu z roku 2008 na ilość wybudowanych mieszkań
+### Możemy zauważyć wpływ kryzysu z roku 2008 na ilość wybudowanych mieszkań.
 
 ### widzimy stanowcze zaburzenie sezonowości w ilości osób bezrobotnych w roku 2020 z powodu pandemii, podobne zaburzenie możemy zobaczyć na wykresie przeciętnego wynagrodzenia.
 
 
-## Sprawdźmy korelacje między dwoma zmiennymi
+## Sprawdźmy korelacje między dwoma zmiennymi.
 
 ```{r cor, echo=FALSE,message=FALSE, warning=FALSE}
     #agregacja danych makro dla powiatu
@@ -189,7 +190,7 @@ Ze względu na wysoką korelację pomiędzy ilością bezrobotnych a wynagrodzen
 
 ```
 
-## Test ADF dla zmiany procentowej ilości nowych mieszkań
+## Test ADF dla zmiany procentowej ilości nowych mieszkań.
 
 
 ```{r adf_mieszk , echo=FALSE,message=FALSE, warning=FALSE}
