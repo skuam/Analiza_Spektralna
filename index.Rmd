@@ -1,7 +1,7 @@
 ---
 title: "Analiza spektralna rynku pracy"
 author: "Mateusz Jakubczak"
-date: "14 Luty 2021"
+date: "14 Lutego 2021"
 output:
   html_document:
     fig_height: 7
