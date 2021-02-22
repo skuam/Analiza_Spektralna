@@ -1,0 +1,494 @@
+---
+title: "Analiza Spektralna Rynku Pracy"
+author: "Mateusz Jakubczak"
+date: "14 Luty 2021"
+output:
+  html_document:
+    fig_height: 7
+    fig_width: 14
+  pdf_document: default
+---
+
+
+```{r setup, include=FALSE,echo=FALSE, warning=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+Sys.setlocale(category = "LC_ALL", locale = "Polish")
+#tools
+library(ggplot2)
+library(dplyr)
+library(quantmod)
+library(tidyr)
+
+library(ggcorrplot)
+library(lubridate)
+library(forcats)
+library(DataCombine)
+
+library(outliers)
+library(lattice)
+library(multitaper)
+require(multitaper)
+library(astsa)
+
+library(oce)
+library(mFilter)
+library(tseries)
+library(Mcomp)
+library(smooth)
+```
+
+
+
+```{r DataPrep, echo=FALSE,message=FALSE, warning=FALSE}
+    df <- read.csv("makro_gus.csv", sep = ";", fileEncoding = "UTF-8")
+
+
+    df <- cbind(df,read.csv("bez.csv", sep = ";"))
+
+
+    df$Date = as.Date(df$Date, tryFormats = c("%d.%m.%Y"))
+    df$Mieszkania =  gsub(" ","",
+                          gsub(",",".",df$Mieszkania))%>%as.integer()
+    df$Stopa =  gsub(" ","",
+                          gsub(",",".",df$Stopa))%>%as.integer()
+    df$Wynagrodzenie =  gsub(" ","",
+                          gsub(",",".",df$Wynagrodzenie))%>%as.integer()
+    df$Bezrobotni =  gsub(" ","",
+                          gsub(",",".",df$Bezrobotni))%>%as.integer()
+    df <- df%>%drop_na()
+  
+```
+
+
+# Pytanie badawcze
+
+### Jaki jest wływ rynku pracy na rynek nieruchomości
+
+
+## Zrodło danych
+
+Dane pochodzą z serwisu gus i obejmują zakres od lat 2005 do 2020 w okresach miesiecznych.
+https://stat.gov.pl/download/gfx/portalinformacyjny/pl/defaultstronaopisowa/1772/1/5/wybrane_miesieczne_wskazniki_makroekonomiczne_cz_i.xlsx
+
+## Analiza spektralna zależności między dynamiką wynagrodzeń a stopy bezrobocia
+
+#### Analiza ta polega na znalezieniu zależności wzrostem bądź spadkiem stopy bezrobocia i jaki ma to wpływ na poziom średniego wynagrodzenia.
+
+Wybrane czynniki to:
+
+1. Przeciętne miesięczne nominalne wynagrodzenie brutto
+2. Bezrobotni zarejestrowani
+3. Ilość nowo wybudowanych mieszkań
+
+### Ograniczenia wynikające z założeń
+
+1. Agregujemy dane dla całej polski, bez rozróżnień geograficznych. Dlatego jesteśmy w stanie znaleźć tylko najbardziej globalne zależności, które niemusza być prawdzie dla danego regionu.
+2. Pomijamy w analizę wiele innych ważnych czynników ekonomicznych, takich jak inflacja czy PKB, które również mogą mieć wpływ na badaną hipotezę.
+3. Zmienne te nie są idealnym wskaźnikiem sytuacji na rynku pracy czy rynku nieruchomości, wybrane zostały ze względu na brak dostępnych dokładniejszych danych
+4. Ilość nowo wybudowanych słabo oddaje stan rynku nieruchomości, ponieważ jest obciążona przez średnią cenę nieruchomości (traktujemy w ten sam sposób jeden drogi nowoczesne osiedle o dużej wartości gdzie jest tylko kilkadziesiąt mieszkań tak jak budowę bloku z wielkiej płyty z setką mieszkań)
+### W samej analizie nie interesują nas same absolutne wartości a ich dynamika. Dlatego liczymy zmianę procentową dla bezrobocia oraz średniego wynagrodzenia.
+
+```{r agregacja , echo=FALSE,message=FALSE, warning=FALSE}
+    #agregacja danych makro dla powiatu
+
+
+    df_1 = change(df, "Wynagrodzenie")
+    df_2 = change(df, "Bezrobotni")
+    df_3 = change(df,"Mieszkania")
+    df_c = data.frame( cbind(
+        df$Date,
+        df_1$`Wynagrodzenie_PChangeFrom-1`,
+        df$Stopa,
+        df_3$`Mieszkania_PChangeFrom-1`),
+        df_2$`Bezrobotni_PChangeFrom-1`)
+
+   # rownames(df) <- df_gus$Date
+    colnames(df_c) <- c( "Date", "Wynagrodzenie_pch","Stopa","Mieszkania_pch", "Bezrobotni_pch")
+
+
+    df_c$Date <- as.Date(df_c$Date)
+    df_c <- df_c%>% drop_na()
+
+
+    # BIERZY NASTEPNY OKRES DO ANALIZY ZEBY NIE ZABURZYC WYNIKOW
+   df_c <- df_c[df_c$Date >= as.Date("2006-01-01"),]
+
+
+```
+## Podczas liczenia dynamiki tracimy informacje dla pierwszego miesiąca co wpływa na dalszą analizę spektralną, ponieważ nie mamy pełnych okresów rocznych.
+### Rozwiązujemy to poprzez odrzucenie całości danych z pierwszego roku.
+
+```{r ploty_stpy, echo=FALSE,message=FALSE, warning=FALSE}
+    #agregacja danych makro dla powiatu
+
+
+    plot(df$Date,df$Bezrobotni,  type = "l" ,main = "Bezrobotni w tysiącach")
+    plot(df$Date,df$Mieszkania,  type = "l",main = "Ilośc nowych mieszkan odana w danym miesiącu  " )
+    plot(df$Date,df$Wynagrodzenie,  type = "l",main = "Przeciente miesieczne wynagrodzenie")
+
+
+```
+
+## Z wykresów widzimy, że mamy do czynienia z danymi o dużej sezonowości oraz szeregami potencjalnie niestacjonarnymi z trendem.
+### Żeby doprowadzić wykres do stacjonarności oraz nie stracić na możliwości interpretacji wyników przeliczamy procentową zmianę miesiąc do miesiąca
+
+```{r pch, echo=FALSE,message=FALSE, warning=FALSE}
+    #agregacja danych makro dla powiatu
+
+
+    plot(df_c$Date,df_c$Bezrobotni_pch,  type = "l" ,main = "Zmiana procentowa ilości bezrobotnich ")
+    plot(df_c$Date,df_c$Mieszkania_pch,  type = "l",main = "Zmiana procentowa ilości wybudowanych nowych mieszkań" )
+    plot(df_c$Date,df_c$Wynagrodzenie_pch,  type = "l",main = "Zmiana procentowa wynagrodzenia ")
+
+
+```
+
+### Możemy zauważyć wpływ kryzysu z roku 2008 na ilość wybudowanych mieszkań
+
+### widzimy stanowcze zaburzenie sezonowości w ilości osób bezrobotnych w roku 2020 z powodu pandemii, podobne zaburzenie możemy zobaczyć na wykresie przeciętnego wynagrodzenia.
+
+
+## Sprawdźmy korelacje między dwoma zmiennymi
+
+```{r cor, echo=FALSE,message=FALSE, warning=FALSE}
+    #agregacja danych makro dla powiatu
+
+      corr <- cor(df_c%>%select("Wynagrodzenie_pch",  "Mieszkania_pch","Bezrobotni_pch"),method = "pearson" )
+
+      corrplot::corrplot(corr,method = "number" )
+
+
+
+```
+
+```{r corr_zwykla , echo=FALSE,message=FALSE, warning=FALSE}
+    #agregacja danych makro dla powiatu
+
+      corr <- cor(df%>%select("Wynagrodzenie", "Mieszkania","Bezrobotni"),method = "pearson" )
+
+      corrplot::corrplot(corr,method = "number")
+
+
+```
+
+## Korelacje między zmiennymi w każdym przypadku są statystycznie znaczące.
+Obserwujemy spodziewane wyniki, wysoką ujemną korelację między wynagrodzeniem a ilością bezrobotnych. Pozytywną korelację między wynagrodzeniem a ilością nowo oddanych mieszkań, co daje nam możliwość na wyjaśnianie jednią zmiennej drugą.
+
+
+
+### Wnioski
+Ze względu na wysoką korelację pomiędzy ilością bezrobotnych a wynagrodzeniem z dalszej analizy odrzucimy stopę bezrobocia i skupimy się na interakcji między przeciętnym wynagrodzeniem a ilością nowo wybudowanych mieszkań.
+
+## Test ADF dla zmiany procentowej wynagrodzenia
+
+```{r adf, echo=FALSE,message=FALSE, warning=FALSE}
+    #agregacja danych makro dla powiatu
+
+    adf.test(df_c$Wynagrodzenie_pch)
+
+
+```
+
+## Test ADF dla zmiany procentowej ilości nowych mieszkań
+
+
+```{r adf_mieszk , echo=FALSE,message=FALSE, warning=FALSE}
+    #agregacja danych makro dla powiatu
+
+
+    adf.test(df_c$Mieszkania_pch)
+
+```
+
+### Szeregi są stacjonarne
+
+```{r funckje_stp , echo=FALSE,message=FALSE, warning=FALSE}
+    #agregacja danych makro dla powiatu
+   perio_plot <- function (data, title = "title", window = NULL){
+
+    wyn<- spec.pgram(data, kernel = window,plot = FALSE,log='no', taper=0,pad=0, fast=FALSE,demean=TRUE,detrend=TRUE)
+    x = round(wyn$freq, digits = 2)
+    y = round(wyn$spec, digits = 0)
+
+    coords = paste("okres", round(1/x,2))
+
+    points = data.frame(x,y)
+
+    ggplot(points,aes(x,y))+geom_point(col="blue")+
+    geom_label(aes(x+0.03,label=coords))+geom_line()+
+    ggtitle(title)+theme(plot.title = element_text(hjust = 0.5))
+   }
+  perio_plot_normal <- function (data, title = "title"){
+
+    wyn<- spec.pgram(data, plot = FALSE)
+    x = round(wyn$freq, digits = 2)
+    y = round(wyn$spec, digits = 0)
+
+    coords = paste("okres", x)
+
+    points = data.frame(x,y)
+
+    ggplot(points,aes(x,y))+geom_point(col="blue")+
+    geom_label(aes(x+0.03,label=coords))+geom_line()+
+    ggtitle(title)+theme(plot.title = element_text(hjust = 0.5))
+   }
+```
+
+### Każdy szczyt na periodogramie dla łatwości w odczytaniu i interpetacji ma przypisany do siebie odowiadjący mu okres(1/częstotliwość) zaokrąglony do dwóch miejsc po precinku.
+
+```{r perio_wynagrodzeniestp , echo=FALSE,message=FALSE, warning=FALSE}
+    #agregacja danych makro dla powiatu
+    perio_plot(df$Wynagrodzenie, "Naiwny periodogram dla Wynagrodzenia")
+
+```
+```{r perio_miesz , echo=FALSE,message=FALSE, warning=FALSE}
+
+    perio_plot(df$Mieszkania, "Naiwny periodogram dla nowo wybudowanych mieszkań")
+```
+
+## W obu przypadkach widzimmy spike dla bardzo  niskich częstoliwości, co sugeruje nam wystepowanie trendu. pracowanie na zmianach procentowych powinno wyeliminować ten problem.
+
+```{r perio_wynagrodzenie_pchstp , echo=FALSE,message=FALSE, warning=FALSE}
+    #agregacja danych makro dla powiatu
+    perio_plot(df_c$Wynagrodzenie_pch, "Naiwny periodogram dla zmiany procentowej wynagrodzenia")
+
+```
+
+```{r perio_wyn , echo=FALSE,message=FALSE, warning=FALSE}
+    #agregacja danych makro dla powiatu
+
+   # spec.pgram(df$Stopa)
+
+   perio_plot(df_c$Mieszkania_pch, "Naiwny periodogram dla zmiany procentowej nowo wybudowanych mieszkań")
+```
+## Mamy bardzo ładne periodogramy naiwne.
+
+### Widzimy wyraźnie okresy 12 miesięcy, połroczne, cztero miesieczne oraz kwartalne, glowny cykl powtarza się co kwartał
+
+### wygładzanie średnią ruchomą
+
+```{r smooth, echo=FALSE,message=FALSE, warning=FALSE}
+    #agregacja danych makro dla powiatu
+
+ma_3 = sma(df_c$Wynagrodzenie_pch, order = 3)
+plot(forecast(ma_3, h = 0))
+
+
+```
+```{r smooth_4, echo=FALSE,message=FALSE, warning=FALSE}
+    #agregacja danych makro dla powiatu
+
+ma_4 = sma(df_c$Wynagrodzenie_pch, order = 4)
+plot(forecast(ma_4, h = 0))
+
+```
+```{r smooth_6, echo=FALSE,message=FALSE, warning=FALSE}
+    #agregacja danych makro dla powiatu
+
+ma_6 = sma(df_c$Wynagrodzenie_pch, order = 6)
+plot(forecast(ma_6, h = 0))
+
+```
+```{r smooth_12, echo=FALSE,message=FALSE, warning=FALSE}
+    #agregacja danych makro dla powiatu
+
+ma_12= sma(df_c$Wynagrodzenie_pch, order = 12)
+plot(forecast(ma_12, h = 0))
+
+
+```
+
+### Wykres został najlepiej wygładzony dla średniej równej 12
+
+### Periodogram dla wynagrodzenia w naiwnej formie wyglądał na czysty
+
+
+```{r smooth_misz_3, echo=FALSE,message=FALSE, warning=FALSE}
+    #agregacja danych makro dla powiatu
+
+ma_3 = sma(df_c$Mieszkania_pch, order = 3)
+plot(forecast(ma_3, h = 0))
+
+
+```
+```{r smooth_miesz_4 , echo=FALSE,message=FALSE, warning=FALSE}
+    #agregacja danych makro dla powiatu
+
+ma_4 = sma(df_c$Mieszkania_pch, order = 4)
+plot(forecast(ma_4, h = 0))
+
+```
+```{r smooth miesz 6, echo=FALSE,message=FALSE, warning=FALSE}
+    #agregacja danych makro dla powiatu
+
+ma_6 = sma(df_c$Mieszkania_pch, order = 6)
+plot(forecast(ma_6, h = 0))
+
+```
+```{r smooth_miesz_12, echo=FALSE,message=FALSE, warning=FALSE}
+    #agregacja danych makro dla powiatu
+
+ma_12= sma(df_c$Mieszkania_pch, order = 12)
+plot(forecast(ma_12, h = 0))
+
+
+```
+
+## Mieszkania również wykazują bardzo dobre wygładzenie za pomocą średniej ruchomej 12-miesięcznej.
+
+
+```{r smooth_perio, echo=FALSE,message=FALSE, warning=FALSE}
+    #agregacja danych makro dla powiatu
+
+window_2<-kernel('daniell',6)
+window_3<-kernel('daniell',c(3,3))
+
+
+perio_plot(df_c$Mieszkania_pch, "Okno daniela 6",window = window_2)
+perio_plot(df_c$Mieszkania_pch, "Okno daniela 2,2",window = window_3)
+
+
+```
+
+### Okno daniela nie daje rady wygładzić periodogramu
+
+### próba wygładzenia metodą multitaper
+
+```{r multitaper, echo=FALSE,message=FALSE, warning=FALSE}
+    #agregacja danych makro dla powiatu
+Spec2 <- spec.mtm(df_c$Mieszkania_pch, Ftest = TRUE)
+```
+# Periodogram Welcha
+
+```{r welch, echo=FALSE,message=FALSE, warning=FALSE}
+    #agregacja danych makro dla powiatu
+
+    wyn <- pwelch(df_c$Mieszkania_pch, noverlap = 20, plot = FALSE)
+
+    x = round(wyn$freq, digits = 2)
+    y = round(wyn$spec, digits = 0)
+
+    coords = paste("okres", round(1/x,2))
+
+    points = data.frame(x,y)
+
+    ggplot(points,aes(x,y))+geom_point(col="red")+
+    geom_label(aes(x+0.02,label=coords))+geom_line()+
+    ggtitle("Periodogram welcha")+theme(plot.title = element_text(hjust = 0.5))
+```
+### Periodogram welcha osiąga maksimum dla okresu 3-miesięcznego, czyli kwartalnego, widzimy również okres roczny i okres dwuletni.
+
+### odfiltrowanie cykli 3,4 oraz 12-miesięcznych
+
+```{r filtrowanie_wyn, echo=FALSE,message=FALSE, warning=FALSE}
+
+k = kernel('modified.daniell', c(3,4,12))
+
+filter_wyn <- kernapply(df_c$Wynagrodzenie_pch , k)
+
+perio_plot(filter_wyn, "wynagrodzenie odfiltrowany dominujących 3,4,12 miesięcznych")
+```
+
+
+### Jesteśmy pewni występowania cyklów 3, 4 i 12-miesięcznego w zmianach
+
+### wykonajmy tę samą procedurę dla mieszkań
+
+
+```{r filtrowanie_miesz, echo=FALSE,message=FALSE, warning=FALSE}
+
+k = kernel('modified.daniell', c(3,12,36))
+
+filter_msk <- kernapply(df_c$Mieszkania_pch , k)
+
+perio_plot(filter_msk, "Mieszkanie odfiltrowanie 3,12,36 miesiecznych")
+
+```
+
+
+
+## odfiltrowane wykresy
+
+
+
+```{r filtrowanie_3, echo=FALSE,message=FALSE, warning=FALSE}
+
+plot(filter_wyn)
+plot(filter_msk)
+
+```
+
+### Widzimy, że przyrost nowych mieszkań jest w miarę stały po bum w okolicach lat 2008, potem mamy w miarę stały przyrost na poziomie około 2%
+
+### Wzrost przeciętnej pensji jest mniejszy, bo teraz utrzymuje się okolicy 0.5 % z zauważalnym spadkiem w 2008 roku oraz roku 2020
+
+### Zobaczy dłużej terminowe zmiany biorąc zmianę w stosunku do analogicznego, poprzedniego okresu.
+
+
+
+```{r agregacja_po_roku, echo=FALSE,message=FALSE, warning=FALSE}
+    #agregacja danych makro dla powiatu
+
+
+    df_1 = change(df, "Wynagrodzenie", slideBy = -12)
+    df_2 = change(df, "Bezrobotni", slideBy = -12)
+    df_3 = change(df,"Mieszkania", slideBy = -12)
+    df_o = data.frame( cbind(
+        df$Date,
+        df_1$`Wynagrodzenie_PChangeFrom-1`,
+        df$Stopa,
+        df_3$`Mieszkania_PChangeFrom-1`),
+        df_2$`Bezrobotni_PChangeFrom-1`)
+
+   # rownames(df) <- df_gus$Date
+    colnames(df_o) <- c( "Date", "Wynagrodzenie_pch","Stopa","Mieszkania_pch", "Bezrobotni_pch")
+
+
+    df_o$Date <- as.Date(df_o$Date)
+    df_o <- df_o%>% drop_na()
+
+
+    # BIERZY NASTEPNY OKRES DO ANALIZY ZEBY NIE ZABURZYC WYNIKOW
+   df_o <- df_o[df_o$Date >= as.Date("2006-01-01"),]
+
+
+```
+
+# Periodogramy dla zmian rok do roku
+
+```{r perio_wynagrodzenie_pc_stp_roczne , echo=FALSE,message=FALSE, warning=FALSE}
+    #agregacja danych makro dla powiatu
+    perio_plot(df_o$Wynagrodzenie_pch, "Naiwny periodogram dla zmiany procentowej wynagrodzenia")
+
+```
+
+
+```{r perio__wyn_roczne , echo=FALSE,message=FALSE, warning=FALSE}
+    #agregacja danych makro dla powiatu
+
+   # spec.pgram(df$Stopa)
+
+   perio_plot(df_o$Mieszkania_pch, "Naiwny periodogram dla zmiany procentowej nowo wybudowanych mieszkań")
+
+
+```
+
+## Interpretacja periodogramów
+
+Pomijając trend w zmianie procentowej wynagrodzenia, widzimy, że oba wykresy posiadają dominujący okres około 4-letni.
+
+```{r kocherencje  , echo=FALSE,message=FALSE, warning=FALSE}
+    #agregacja danych makro dla powiatu
+    um <-df_c%>%select("Wynagrodzenie_pch", "Mieszkania_pch")
+   uml <- mvspec(um, spans=c(2,2))
+plot.spec.coherency(uml, ci = 0.95, xlab = "czestotliwosc",
+                    ylab = "kwadrat koherencji", type = "l")
+plot.spec.phase(uml, ci = 0.95,xlab =" czestotliwosc ",
+                ylab = "przesuniecie fazowe", type = "l")
+```
+
+### Widzimy przesunięcie fazowe o 3 okresy wynagrodzenia względem mieszkań. Wzrost wynagrodzenia z opóźnieniem 3 w okresie 12-miesięcznym wpływa na ilość nowo wybudowanych mieszkań.
+
+# Odpowiedz na pytanie badwcze
+
+Mamy pozytywną interakcję, która wynika z dodatniej korelacji pomiędzy zmiennymi. Rynek pracy dla kluczowych okresów wyprzedza zazwyczaj o trzy okresy rynek nieruchomości. Kluczowe okresy dla rynku pracy to 3,4 i 12 miesięcy, natomiast dla rynku nieruchomości są to okresy 3,12 i 36-miesięczne.
